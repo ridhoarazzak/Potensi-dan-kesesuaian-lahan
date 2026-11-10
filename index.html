@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peta 3D Potensi Hutan Nagari Solok Selatan</title>
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+html,body{height:100%;margin:0;font:14px system-ui,sans-serif}
+#map{position:absolute;inset:0}
+#ui{position:absolute;top:10px;left:10px;right:10px;max-width:340px;background:rgba(255,255,255,.93);color:#1d2a20;padding:10px;border-radius:10px;z-index:2}
+#ui b{display:block;margin-bottom:6px}
+select,input{width:100%;margin:4px 0;font:inherit}
+.lg{height:10px;border-radius:5px;background:linear-gradient(90deg,#d7191c,#fdae61,#ffffbf,#a6d96a,#1a9641)}
+.lb{display:flex;justify-content:space-between;font-size:11px}
+.maplibregl-popup-content{color:#1d2a20;font-size:13px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="ui">
+<b>Peta 3D Potensi Hutan Nagari</b>
+<div>1. Pilih file GeoJSON hasil ekspor GEE:</div>
+<input type="file" id="f" accept=".geojson,.json">
+<div>2. Pilih komoditas:</div>
+<select id="kom"></select>
+<div class="lg"></div><div class="lb"><span>Rendah</span><span>Tinggi</span></div>
+<div style="font-size:11px;margin-top:4px">Tinggi balok = skor kesesuaian. Ketuk wilayah untuk rincian. Gunakan dua jari untuk memiringkan peta.</div>
+</div>
+<script>
+var NAMES=['Durian','Manggis','KopiRobusta','KopiArabika','Kakao','KayuManis'];
+var kom=NAMES[0];
+var sel=document.getElementById('kom');
+sel.innerHTML=NAMES.map(function(n){return '<option>'+n+'</option>'}).join('');
+
+var map=new maplibregl.Map({
+  container:'map',center:[101.2,-1.5],zoom:9,pitch:60,bearing:20,maxPitch:85,
+  style:{version:8,sources:{
+    sat:{type:'raster',tileSize:256,maxzoom:18,attribution:'Esri World Imagery',
+      tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']},
+    dem:{type:'raster-dem',tileSize:256,maxzoom:15,encoding:'terrarium',attribution:'Mapzen/AWS Terrain Tiles',
+      tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']}},
+    layers:[{id:'sat',type:'raster',source:'sat'}]}
+});
+map.addControl(new maplibregl.NavigationControl());
+map.on('load',function(){map.setTerrain({source:'dem',exaggeration:1.5})});
+
+function colorExpr(k){
+  return ['interpolate',['linear'],['coalesce',['get',k],0],0,'#d7191c',0.25,'#fdae61',0.5,'#ffffbf',0.75,'#a6d96a',1,'#1a9641'];
+}
+function heightExpr(k){return ['*',['coalesce',['get',k],0],800]}
+
+function coords(g,fn){
+  if(typeof g[0]==='number'){fn(g);return}
+  g.forEach(function(x){coords(x,fn)});
+}
+
+document.getElementById('f').onchange=function(e){
+  var fl=e.target.files[0];if(!fl)return;
+  var r=new FileReader();
+  r.onload=function(){
+    var gj=JSON.parse(r.result);
+    if(map.getLayer('hn3d')){map.removeLayer('hn3d');map.removeLayer('hnline');map.removeSource('hn')}
+    map.addSource('hn',{type:'geojson',data:gj});
+    map.addLayer({id:'hn3d',type:'fill-extrusion',source:'hn',paint:{
+      'fill-extrusion-color':colorExpr(kom),'fill-extrusion-height':heightExpr(kom),
+      'fill-extrusion-base':0,'fill-extrusion-opacity':0.85}});
+    map.addLayer({id:'hnline',type:'line',source:'hn',paint:{'line-color':'#fff','line-width':1.5}});
+    var b=new maplibregl.LngLatBounds();
+    gj.features.forEach(function(f){coords(f.geometry.coordinates,function(c){b.extend(c)})});
+    map.fitBounds(b,{padding:60,pitch:60,duration:1500});
+    map.on('click','hn3d',function(ev){
+      var p=ev.features[0].properties;
+      var h='<b>'+(p.NAMA_LD||p.NAMA_DESA)+'</b><br>Kec. '+p.NAMA_KEC+'<br>';
+      NAMES.forEach(function(n){h+=n+': '+(+p[n]).toFixed(2)+'<br>'});
+      h+='<b>Rekomendasi KUPS: '+p.rek1+', '+p.rek2+', '+p.rek3+'</b>';
+      new maplibregl.Popup().setLngLat(ev.lngLat).setHTML(h).addTo(map);
+    });
+  };
+  r.readAsText(fl);
+};
+sel.onchange=function(){
+  kom=sel.value;
+  if(map.getLayer('hn3d')){
+    map.setPaintProperty('hn3d','fill-extrusion-color',colorExpr(kom));
+    map.setPaintProperty('hn3d','fill-extrusion-height',heightExpr(kom));
+  }
+};
+</script>
+</body>
+</html>
